@@ -26,8 +26,52 @@ local colored = resource.create_shader[[
         gl_FragColor = texture2D(Texture, TexCoord) * color;
     }
 ]]
-
 local white_pixel = resource.create_colored_texture(1,1,1,1)
+
+local bloom_first_pass = resource.create_shader[[
+    uniform sampler2D Texture;
+    uniform float effect;
+    varying vec2 TexCoord;
+    uniform vec4 Color;
+     
+    void main() {
+        vec2 uv = TexCoord.st;
+     
+        vec2 tex_offset = vec2(1) / vec2(textureSize(Texture, 0));
+        vec3 result = vec3(0.);
+        float sigma = 16.;
+        float sigmaSqrd = 2.*pow(sigma, 2.);
+        for(int i = -32; i<33; i++) {
+            float weight = exp(-pow(float(i), 2.)/sigmaSqrd);
+            result += texture(Texture, uv + vec2(tex_offset.x * float(i), 0.)).rgb * weight;
+        }
+     
+        gl_FragColor = vec4(result, 1.);
+    }
+]]
+
+local bloom_second_pass = resource.create_shader[[
+    uniform sampler2D Texture;
+    uniform float effect;
+    varying vec2 TexCoord;
+    uniform vec4 Color;
+     
+    void main() {
+        vec2 uv = TexCoord.st;
+     
+        vec2 tex_offset = vec2(1) / vec2(textureSize(Texture, 0));
+        vec3 result = vec3(0.);
+        float sigma = 16.;
+        float sigmaSqrd = 2.*pow(sigma, 2.);
+        float fac = 1./(3.14159*sigmaSqrd);
+        for(int i = -32; i<33; i++) {
+            float weight = exp(-pow(float(i), 2.)/sigmaSqrd);
+            result += texture(Texture, uv + vec2(0., tex_offset.x * float(i))).rgb * weight * fac;
+        }
+     
+        gl_FragColor = vec4(result, 1.);
+    }
+]]
 
 local function log(system, format, ...)
     return print(string.format("[%s] " .. format, system, ...))
@@ -1310,12 +1354,14 @@ local function MarkupTile(asset, config, x1, y1, x2, y2)
         for now in helper.frame_between(starts, ends) do
             local x = x1 + base_x
             local y = y1 + base_y
+            bloom_first_pass:use()
             for idx = 1, #writes do
                 local w = writes[idx]
                 w.font:write(x+w.x, y+w.y, w.text, w.size, r,g,b,helper.ramp(
                     starts, ends, now, fade_time
                 ))
             end
+            bloom_first_pass:deactivate()
         end
     end
 end
